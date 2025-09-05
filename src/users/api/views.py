@@ -9,6 +9,7 @@ from src.users.api.serializers import EmployeeSerializer
 from src.users.models import Profile
 
 
+
 @permission_classes([IsAuthenticated])
 def detail_user_api(request, pk):  # REPLACE THIS
     data = Profile.objects.filter(id=pk).first()

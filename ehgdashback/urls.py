@@ -17,10 +17,12 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 
+
 urlpatterns = [
     path("admin/", admin.site.urls),
     path('', include('src.users.urls')),
     path('sheets/', include('src.sheets.api.urls')),
     path('company/', include('src.company.api.urls')),
+    path("api/menu/", include("src.menu_itens.api.urls", namespace="menu_itens_api")),
 
 ]
