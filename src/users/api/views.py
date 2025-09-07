@@ -56,22 +56,28 @@ def _safe_int(val, default=None):
         return default
 
 
+# src/users/api/views.py
+
 def serialize_user_for_sheets(user: User, request=None) -> Dict[str, Any]:
     """
-    Serialização flat no formato consumido pelo frontend (TopEntities/SystemHealth).
-    Agora lê coverageType e insuranceCoverage DIRETO do Profile.
-    Mantém um fallback temporário aos campos role/type caso ainda não estejam preenchidos.
+    Serialização flat no formato consumido pelo frontend (User Management, SystemHealth, TopEntities).
+    Agora inclui user_role e user_type (nome e id) e mantém coverageType/insuranceCoverage do Profile.
     """
     profile = getattr(user, "profile", None)
 
+    # planos no Profile (com fallback temporário p/ role/type se vazio)
     insurance_coverage = getattr(profile, "insuranceCoverage", None)
     coverage_type = getattr(profile, "coverageType", None)
-
-    # Fallback (remova quando todos estiverem migrados)
     if not insurance_coverage:
         insurance_coverage = getattr(getattr(profile, "user_role", None), "user_role", None)
     if not coverage_type:
         coverage_type = getattr(getattr(profile, "user_type", None), "user_type", None)
+
+    # NOVOS: Role/Type (nome + id) pro User Management
+    role_name = getattr(getattr(profile, "user_role", None), "user_role", None)
+    role_id   = getattr(getattr(profile, "user_role", None), "id", None)
+    type_name = getattr(getattr(profile, "user_type", None), "user_type", None)
+    type_id   = getattr(getattr(profile, "user_type", None), "id", None)
 
     data = {
         "id": user.id,
@@ -83,17 +89,24 @@ def serialize_user_for_sheets(user: User, request=None) -> Dict[str, Any]:
         "email":     getattr(profile, "email",      None) or getattr(user, "email",      None),
         "phone":     getattr(profile, "phone_number", None),
 
-        # campos usados pelo SystemHealth
+        # ← campos que o SystemHealth/TopEntities usam
         "insuranceCoverage": insurance_coverage,   # Medicare / Dental / Life / Health / Vision
         "coverageType":      coverage_type,        # individual / family
+
+        # ← campos que a User Accounts page espera
+        "user_role": role_name,
+        "user_role_id": role_id,
+        "user_type": type_name,
+        "user_type_id": type_id,
 
         "company_name": getattr(getattr(profile, "company", None), "name", None),
         "datetime": user.date_joined.isoformat() if user.date_joined else None,
 
-        # compatibilidade com antigo sheets (não é usado em /api/users)
+        # compat antigo (não usado aqui)
         "formType": None,
     }
     return data
+
 
 
 def serialize_user_with_profile(user: User, request=None) -> Dict[str, Any]:
