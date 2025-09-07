@@ -24,5 +24,7 @@ urlpatterns = [
     path('sheets/', include('src.sheets.api.urls')),
     path('company/', include('src.company.api.urls')),
     path("api/menu/", include("src.menu_itens.api.urls", namespace="menu_itens_api")),
+    path("api/notifications/", include("src.notifications.api.urls", namespace="notifications_api")),  # 👈 AQUI
+    path("api/products/", include("src.products.api.urls", namespace="products_api")),
 
 ]

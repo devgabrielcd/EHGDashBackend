@@ -2,6 +2,9 @@ from django.contrib.auth.models import User
 from django.db import models
 from django.db.models.signals import post_save
 
+from src.company.models import Company
+# reaproveita as mesmas choices do products (iguais ao sheets)
+from src.products.models import PLAN_CHOICES, TYPE_CHOICES
 
 class UserType(models.Model):
     user_type = models.CharField(max_length=30)
@@ -51,7 +54,9 @@ class Profile(models.Model):
     objects = models.Manager()
     employee_users = EmployeeManager()  # eg. Employees.employee_users.all()
     customer_users = CustomerManager()  # eg. Employees.customer_users.all()
-
+    company = models.ForeignKey(Company, on_delete=models.DO_NOTHING, null=True, blank=True) # 👈 ADICIONE ESTA LINHA
+    coverageType = models.CharField(max_length=20, choices=PLAN_CHOICES, null=True, blank=True)
+    insuranceCoverage = models.CharField(max_length=20, choices=TYPE_CHOICES, null=True, blank=True)
     def __str__(self):
         return f'{self.user_type} - {self.first_name} {self.last_name}'
 
