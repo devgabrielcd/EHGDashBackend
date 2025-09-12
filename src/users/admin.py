@@ -34,6 +34,8 @@ class ProfileInline(admin.StackedInline):
         "user_type",
         "user_role",
         "company",      # 👈 agora com autocomplete
+        "insuranceCoverage",  # 👈 novo campo Plan
+        "coverageType",  # 👈 novo campo Plan Type
         "image",
     )
     autocomplete_fields = ("user_type", "user_role", "company")
@@ -59,6 +61,8 @@ class UserAdmin(BaseUserAdmin):
         "profile__user_role",
         "profile__user_type",
         "profile__company",   # filtro por Company
+        "profile__insuranceCoverage",  # filtro por Plan
+        "profile__coverageType",       # filtro por Plan Type
     )
     search_fields = (
         "username",
@@ -69,6 +73,8 @@ class UserAdmin(BaseUserAdmin):
         "profile__last_name",
         "profile__email",
         "profile__phone_number",
+        "profile__insuranceCoverage",
+        "profile__coverageType",
     )
 
     def get_inline_instances(self, request, obj=None):
@@ -92,6 +98,8 @@ class ProfileAdmin(admin.ModelAdmin):
         "user_type",
         "user_role",
         "company",   # mostra a empresa
+        "insuranceCoverage",  # 👈 mostra Plan
+        "coverageType",  # 👈 mostra Plan Type
     )
     list_filter = ("user_type", "user_role", "company")
     search_fields = (
@@ -100,5 +108,7 @@ class ProfileAdmin(admin.ModelAdmin):
         "last_name",
         "email",
         "phone_number",
+        "insuranceCoverage",
+        "coverageType",
     )
     autocomplete_fields = ("user_type", "user_role", "company")

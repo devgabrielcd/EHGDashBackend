@@ -1,4 +1,6 @@
 from django.urls import path
+
+
 from .views import (
     users_list_create_api,
     user_detail_api,
@@ -20,4 +22,5 @@ urlpatterns = [
 
     # Endpoint legado (mantido para compatibilidade)
     path('detail-user/<int:pk>/', detail_user_api, name='detail-user'),
+
 ]

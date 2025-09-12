@@ -56,28 +56,22 @@ def _safe_int(val, default=None):
         return default
 
 
-# src/users/api/views.py
-
 def serialize_user_for_sheets(user: User, request=None) -> Dict[str, Any]:
     """
-    Serialização flat no formato consumido pelo frontend (User Management, SystemHealth, TopEntities).
-    Agora inclui user_role e user_type (nome e id) e mantém coverageType/insuranceCoverage do Profile.
+    Serialização flat no formato consumido pelo frontend (TopEntities/SystemHealth/UserAccounts).
+    Lê coverageType e insuranceCoverage do Profile.
+    Inclui também user_role e user_type (nomes) para exibição na tabela.
     """
     profile = getattr(user, "profile", None)
 
-    # planos no Profile (com fallback temporário p/ role/type se vazio)
     insurance_coverage = getattr(profile, "insuranceCoverage", None)
     coverage_type = getattr(profile, "coverageType", None)
+
+    # Fallback temporário (remova quando todos estiverem migrados)
     if not insurance_coverage:
         insurance_coverage = getattr(getattr(profile, "user_role", None), "user_role", None)
     if not coverage_type:
         coverage_type = getattr(getattr(profile, "user_type", None), "user_type", None)
-
-    # NOVOS: Role/Type (nome + id) pro User Management
-    role_name = getattr(getattr(profile, "user_role", None), "user_role", None)
-    role_id   = getattr(getattr(profile, "user_role", None), "id", None)
-    type_name = getattr(getattr(profile, "user_type", None), "user_type", None)
-    type_id   = getattr(getattr(profile, "user_type", None), "id", None)
 
     data = {
         "id": user.id,
@@ -89,27 +83,28 @@ def serialize_user_for_sheets(user: User, request=None) -> Dict[str, Any]:
         "email":     getattr(profile, "email",      None) or getattr(user, "email",      None),
         "phone":     getattr(profile, "phone_number", None),
 
-        # ← campos que o SystemHealth/TopEntities usam
+        # Planos usados no SystemHealth
         "insuranceCoverage": insurance_coverage,   # Medicare / Dental / Life / Health / Vision
         "coverageType":      coverage_type,        # individual / family
 
-        # ← campos que a User Accounts page espera
-        "user_role": role_name,
-        "user_role_id": role_id,
-        "user_type": type_name,
-        "user_type_id": type_id,
+        # Também expõe role/type (nomes)
+        "user_role": getattr(getattr(profile, "user_role", None), "user_role", None),
+        "user_type": getattr(getattr(profile, "user_type", None), "user_type", None),
 
         "company_name": getattr(getattr(profile, "company", None), "name", None),
         "datetime": user.date_joined.isoformat() if user.date_joined else None,
 
-        # compat antigo (não usado aqui)
+        # compat com antigo sheets (não é usado em /api/users)
         "formType": None,
     }
     return data
 
 
-
 def serialize_user_with_profile(user: User, request=None) -> Dict[str, Any]:
+    """
+    Usado em /api/users/<id>/ para retornar {user, profile}.
+    Inclui user_role e user_type também no objeto user para compatibilidade com o auth/session.
+    """
     profile = getattr(user, "profile", None)
     user_data = model_to_dict(
         user,
@@ -128,6 +123,11 @@ def serialize_user_with_profile(user: User, request=None) -> Dict[str, Any]:
     for k in ("date_joined", "last_login"):
         if isinstance(user_data.get(k), (date, datetime)):
             user_data[k] = user_data[k].isoformat()
+
+    # Adiciona role/type direto no "user"
+    if profile:
+        user_data["user_role"] = getattr(getattr(profile, "user_role", None), "user_role", None)
+        user_data["user_type"] = getattr(getattr(profile, "user_type", None), "user_type", None)
 
     profile_data = {}
     if profile:
@@ -151,6 +151,7 @@ def serialize_user_with_profile(user: User, request=None) -> Dict[str, Any]:
 @permission_classes([IsAuthenticated])
 @transaction.atomic
 def users_list_create_api(request):
+    # Somente admins podem listar/criar usuários
     if not _is_admin(request):
         return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -200,7 +201,7 @@ def users_list_create_api(request):
         if field in data:
             setattr(profile, field, data.get(field))
 
-    # NOVOS CAMPOS (plan/insurance)
+    # Campos de planos (opcionais)
     if "coverageType" in data:
         profile.coverageType = data.get("coverageType")  # 'individual'|'family'
     if "insuranceCoverage" in data:
@@ -227,13 +228,25 @@ def users_list_create_api(request):
 @permission_classes([IsAuthenticated])
 @transaction.atomic
 def user_detail_api(request, pk):
-    if not _is_admin(request):
-        return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
-
-    user = get_object_or_404(User.objects.select_related("profile", "profile__company"), pk=pk)
+    """
+    GET: permite admin OU o próprio usuário (self).
+    PATCH/DELETE: somente admin.
+    """
+    user = get_object_or_404(
+        User.objects.select_related("profile", "profile__user_role", "profile__user_type", "profile__company"),
+        pk=pk
+    )
+    is_self = request.user.is_authenticated and request.user.id == user.id
+    is_admin = _is_admin(request)
 
     if request.method == "GET":
-        return Response(serialize_user_for_sheets(user, request=request))
+        if not (is_admin or is_self):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        data = serialize_user_with_profile(user, request=request)
+        return Response({"user": data["user"], "profile": data["profile"]})
+
+    if not is_admin:
+        return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
     if request.method == "PATCH":
         data = request.data or {}
@@ -260,7 +273,7 @@ def user_detail_api(request, pk):
             if field in data:
                 setattr(profile, field, data.get(field))
 
-        # NOVOS CAMPOS (plan/insurance)
+        # Campos de planos (opcionais)
         if "coverageType" in data:
             profile.coverageType = data.get("coverageType")
         if "insuranceCoverage" in data:
@@ -279,9 +292,11 @@ def user_detail_api(request, pk):
             profile.company = get_object_or_404(Company, id=company_id)
 
         profile.save()
-        return Response(serialize_user_for_sheets(user, request=request))
 
-    # DELETE (soft/hard)
+        out = serialize_user_with_profile(user, request=request)
+        return Response({"user": out["user"], "profile": out["profile"]})
+
+    # DELETE
     hard = _parse_bool(request.query_params.get("hard"), False)
     if hard:
         user.delete()
@@ -316,12 +331,16 @@ def user_types_list_api(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def detail_user_api(request, pk):
+    """
+    Endpoint legado usado em alguns pontos: recebe PK de Profile.
+    Mantido para compatibilidade.
+    """
     profile = get_object_or_404(Profile, id=pk)
     data = serialize_user_with_profile(profile.user, request=request)
     return Response({"user": data["user"], "profile": data["profile"]})
 
 # ---------------------------------------------------------------------
-# KPIs para Dashboard  (/api/users/stats/)
+# KPIs / Stats
 # ---------------------------------------------------------------------
 
 @api_view(["GET"])
@@ -338,7 +357,7 @@ def users_stats_api(request):
 
     total_users = base.count()
 
-    # Contagem por companhia (nomes flexíveis, ajuste se quiser IDs)
+    # Contagens por companhia (ajuste os nomes conforme seu seed)
     h4h_users = base.filter(
         Q(company__name__iexact="H4hInsurance")
         | Q(company__name__iexact="h4hinsurance")
@@ -351,7 +370,6 @@ def users_stats_api(request):
         | Q(company__name__iexact="QoL")
     ).count()
 
-    # Quebras por linhas/planos (usadas no SystemHealth se quiser)
     by_insurance = (
         base.values("insuranceCoverage")
         .annotate(count=Count("id"))
@@ -372,3 +390,34 @@ def users_stats_api(request):
             "by_coverage_type": list(by_coverage_type),
         }
     )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def users_product_mix(request):
+    """
+    Retorna agregações enxutas para gráficos:
+      - by_insurance: [{insuranceCoverage, total}]
+      - by_plan:      [{coverageType, total}]
+    Filtro opcional por ?company=<id>
+    """
+    company_id = request.query_params.get("company")
+    base = Profile.objects.all()
+    if company_id:
+        base = base.filter(company__id=company_id)
+
+    by_insurance = (
+        base.values("insuranceCoverage")
+        .annotate(total=Count("id"))
+        .order_by("-total")
+    )
+    by_plan = (
+        base.values("coverageType")
+        .annotate(total=Count("id"))
+        .order_by("-total")
+    )
+
+    return Response({
+        "by_insurance": list(by_insurance),
+        "by_plan": list(by_plan),
+    })
