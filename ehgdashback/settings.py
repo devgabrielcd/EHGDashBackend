@@ -21,6 +21,7 @@ INSTALLED_APPS = [
     "src.sheets",
     "src.menu_itens",
     "src.notifications",
+    'src.reports',
     "corsheaders",
     "rest_framework",
     "rest_framework_simplejwt",
