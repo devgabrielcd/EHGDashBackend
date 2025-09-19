@@ -46,4 +46,3 @@ class Product(models.Model):
     def __str__(self):
         base = f"{self.name} ({self.insuranceCoverage} / {self.coverageType})"
         return f"{self.company} – {base}" if self.company else base
-''

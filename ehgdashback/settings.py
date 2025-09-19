@@ -19,10 +19,12 @@ INSTALLED_APPS = [
     "src.company",
     'src.products',
     "src.sheets",
+    "src.analytics",
     "src.menu_itens",
     "src.notifications",
     'src.reports',
     "corsheaders",
+    "django_filters",
     "rest_framework",
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
@@ -86,6 +88,10 @@ REST_FRAMEWORK = {
         "rest_framework.authentication.SessionAuthentication",  # precisa
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
+
+    "DEFAULT_FILTER_BACKENDS": [
+        "django_filters.rest_framework.DjangoFilterBackend",
+    ],
 }
 
 # SIMPLE JWT — access curto (5min), refresh longo (7d), rotação + blacklist
