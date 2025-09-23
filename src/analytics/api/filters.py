@@ -2,7 +2,9 @@
 import django_filters
 from django_filters import rest_framework as filters
 from django.contrib.auth import get_user_model
+
 from src.users.models import Profile
+from src.forms.models import FormSubmission  # ⬅️ novo
 
 User = get_user_model()
 
@@ -32,8 +34,9 @@ class ProfileFilterSet(filters.FilterSet):
         # Por padrão, exclui NULL/""; se include_unknown=1, mantém
         if value:
             return queryset
-        return queryset.exclude(insuranceCoverage__isnull=True).exclude(insuranceCoverage__exact="")\
-                       .exclude(coverageType__isnull=True).exclude(coverageType__exact="")
+        return (queryset
+                .exclude(insuranceCoverage__isnull=True).exclude(insuranceCoverage__exact="")
+                .exclude(coverageType__isnull=True).exclude(coverageType__exact=""))
 
     class Meta:
         model = Profile
@@ -64,3 +67,25 @@ class UserFilterSet(filters.FilterSet):
     class Meta:
         model = User
         fields = ["company"]
+
+
+# ⬇️ NOVO: filtros para envios de formulário
+class FormSubmissionFilterSet(filters.FilterSet):
+    """
+    Filtros para FormSubmission (novo app forms).
+    Exemplos:
+      ?company=2
+      ?formType=Homepage%20Form
+      ?formType__in=Homepage%20Form,Appointment%20Form
+      ?created_after=2025-01-01
+      ?created_before=2025-12-31
+    """
+    company = filters.NumberFilter(field_name="company__id")
+    formType = filters.CharFilter(field_name="formType", lookup_expr="iexact")
+    formType__in = CharInFilter(field_name="formType", lookup_expr="in")
+    created_after = filters.DateFilter(field_name="created_at", lookup_expr="date__gte")
+    created_before = filters.DateFilter(field_name="created_at", lookup_expr="date__lte")
+
+    class Meta:
+        model = FormSubmission
+        fields = ["company", "formType"]

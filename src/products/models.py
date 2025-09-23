@@ -1,7 +1,7 @@
 from django.db import models
 from src.company.models import Company
 
-# Reuso do padrão do sheets (choices simples)
+# ===== Choices iguais ao sheets =====
 PLAN_CHOICES = [
     ("individual", "Individual"),
     ("family", "Family"),
@@ -15,34 +15,39 @@ TYPE_CHOICES = [
     ("Vision", "Vision"),
 ]
 
+FORM_TYPE_CHOICES = [
+    ("homepage", "Homepage Form"),
+    ("referral", "Referral Friend Form"),
+    ("appointment", "Appointment Form"),
+]
+
 
 class Product(models.Model):
-    """
-    Produto “enxuto”, combinando Plan Type (coverageType) e Insurance Coverage (insuranceCoverage),
-    e opcionalmente atrelado a uma Company.
-    """
-    company = models.ForeignKey(Company, on_delete=models.CASCADE, blank=True, null=True)
+    company = models.ForeignKey(
+        Company, on_delete=models.CASCADE, blank=True, null=True, related_name="products"
+    )
 
-    # Nome curto/identificador (ex.: “Health – Individual”, “Dental – Family”)
     name = models.CharField(max_length=150)
-
-    # Iguais ao sheets (choices)
     coverageType = models.CharField(max_length=20, choices=PLAN_CHOICES)
     insuranceCoverage = models.CharField(max_length=20, choices=TYPE_CHOICES)
-
-    # Flags básicas
+    formType = models.CharField(
+        max_length=20, choices=FORM_TYPE_CHOICES, default="homepage", db_index=True
+    )
     is_active = models.BooleanField(default=True)
 
-    # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = "Product"
         verbose_name_plural = "Products"
         ordering = ("-created_at",)
-        # Evita duplicidade óbvia dentro da mesma empresa
-        unique_together = [("company", "name", "coverageType", "insuranceCoverage")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "name", "coverageType", "insuranceCoverage", "formType"],
+                name="uniq_product_company_name_coverage_line_formtype",
+            )
+        ]
 
     def __str__(self):
-        base = f"{self.name} ({self.insuranceCoverage} / {self.coverageType})"
+        base = f"{self.name} ({self.insuranceCoverage}/{self.coverageType}, {self.formType})"
         return f"{self.company} – {base}" if self.company else base

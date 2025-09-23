@@ -4,16 +4,20 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User
 
 from src.users.models import Profile, UserType, UserRole
+from src.forms.models import FormSubmission
+
 
 @admin.register(UserType)
 class UserTypeAdmin(admin.ModelAdmin):
     list_display = ("id", "user_type")
     search_fields = ("user_type",)
 
+
 @admin.register(UserRole)
 class UserRoleAdmin(admin.ModelAdmin):
     list_display = ("id", "user_role")
     search_fields = ("user_role",)
+
 
 class ProfileInline(admin.StackedInline):
     """
@@ -33,12 +37,15 @@ class ProfileInline(admin.StackedInline):
         "signed_date",
         "user_type",
         "user_role",
-        "company",      # 👈 agora com autocomplete
-        "insuranceCoverage",  # 👈 novo campo Plan
-        "coverageType",  # 👈 novo campo Plan Type
+        "company",                # autocomplete OK
+        "insuranceCoverage",
+        "coverageType",
         "image",
+        "formType",  # 🌟 Adicione esta linha
+
     )
     autocomplete_fields = ("user_type", "user_role", "company")
+
 
 class UserAdmin(BaseUserAdmin):
     """
@@ -52,7 +59,6 @@ class UserAdmin(BaseUserAdmin):
         "last_name",
         "is_active",
         "is_staff",
-
     )
     list_filter = (
         "is_active",
@@ -60,9 +66,11 @@ class UserAdmin(BaseUserAdmin):
         "is_superuser",
         "profile__user_role",
         "profile__user_type",
-        "profile__company",   # filtro por Company
-        "profile__insuranceCoverage",  # filtro por Plan
-        "profile__coverageType",       # filtro por Plan Type
+        "profile__company",
+        "profile__insuranceCoverage",
+        "profile__coverageType",
+        "profile__formType",  # 🌟 Adicione esta linha
+
     )
     search_fields = (
         "username",
@@ -75,6 +83,8 @@ class UserAdmin(BaseUserAdmin):
         "profile__phone_number",
         "profile__insuranceCoverage",
         "profile__coverageType",
+        "profile__formType",  # 🌟 Adicione esta linha
+
     )
 
     def get_inline_instances(self, request, obj=None):
@@ -82,9 +92,12 @@ class UserAdmin(BaseUserAdmin):
             return []
         return super().get_inline_instances(request, obj)
 
-# substitui o admin padrão de User
+
+# Substitui o admin padrão de User
 admin.site.unregister(User)
 admin.site.register(User, UserAdmin)
+
+
 
 @admin.register(Profile)
 class ProfileAdmin(admin.ModelAdmin):
@@ -97,11 +110,12 @@ class ProfileAdmin(admin.ModelAdmin):
         "email",
         "user_type",
         "user_role",
-        "company",   # mostra a empresa
-        "insuranceCoverage",  # 👈 mostra Plan
-        "coverageType",  # 👈 mostra Plan Type
+        "company",
+        "insuranceCoverage",
+        "coverageType",
+        "formType", # 🌟 Adicione esta linha e remova o método 'get_form_type'
     )
-    list_filter = ("user_type", "user_role", "company")
+    list_filter = ("user_type", "user_role", "company", "formType") # 🌟 Adicione esta linha
     search_fields = (
         "user__username",
         "first_name",
@@ -110,5 +124,9 @@ class ProfileAdmin(admin.ModelAdmin):
         "phone_number",
         "insuranceCoverage",
         "coverageType",
+        "formType",  # 🌟 Adicione esta linha
+
     )
     autocomplete_fields = ("user_type", "user_role", "company")
+
+

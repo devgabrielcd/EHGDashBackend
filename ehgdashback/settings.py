@@ -23,6 +23,8 @@ INSTALLED_APPS = [
     "src.menu_itens",
     "src.notifications",
     'src.reports',
+    'src.forms',
+    'django_seed',
     "corsheaders",
     "django_filters",
     "rest_framework",

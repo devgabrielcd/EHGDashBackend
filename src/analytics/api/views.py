@@ -11,22 +11,23 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from src.users.models import Profile
-from .filters import ProfileFilterSet, UserFilterSet
+from src.forms.models import FormSubmission  # ⬅️ novo
+from .filters import ProfileFilterSet, UserFilterSet, FormSubmissionFilterSet
 
 # importa helpers do app users
 from src.users.api.views import (
     _is_admin,
     _safe_int,
-    _coerce_to_date,      # ⚠️ você não tinha no users/views, mas podemos criar igual ao que estava antes no analytics
-    _parse_bool,          # não usado aqui, mas já trazemos se precisar
-    serialize_user_for_sheets,
-    serialize_user_with_profile,
+    _coerce_to_date,
+    _parse_bool,  # não usado aqui, mas ok manter
+    serialize_user_for_sheets,       # não usamos neste arquivo, mas ok
+    serialize_user_with_profile,     # idem
 )
 
 User = get_user_model()
 
 # ------------------------
-# Helpers específicos do analytics (mantidos aqui)
+# Helpers específicos do analytics
 # ------------------------
 
 def _month_key(d: _date) -> str:
@@ -78,54 +79,69 @@ def _parse_period(query_params) -> Tuple[str, Optional[int]]:
     except Exception:
         return ("months", 12)
 
+
 # ------------------ Endpoints ------------------
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def users_product_mix(request):
     """
-    Suporta filtros via django-filter:
+    Agregações para o "System Health".
+
+    Filtros aceitos:
       - company=<id>
       - insuranceCoverage=<str> | insuranceCoverage__in=A,B,C
       - coverageType=<str>
-      - include_unknown=1|0 (default 0)
-      - order=asc|desc (default desc)
+      - include_unknown=1|0     (aplica nos campos do Profile)
+      - formType=<str> | formType__in=A,B,C  (aplica em FormSubmission)
+      - order=asc|desc          (padrão: desc)
       - limit=<int>
-    Ainda respeita ?view=insurance|planTypes|all
+      - view=insurance|planTypes|formTypes|all
+
+    Resposta:
+      {
+        "by_insurance": [{"insuranceCoverage": "...", "total": N}, ...],
+        "by_plan": [{"coverageType": "...", "total": N}, ...],
+        "by_form": [{"formType": "...", "total": N}, ...]
+      }
     """
     if not _is_admin(request):
         return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
-    view = (request.query_params.get("view") or "all").strip().lower()
-    order = (request.query_params.get("order") or "desc").lower()
+    view  = (request.query_params.get("view")  or "all").strip().lower()
+    order = (request.query_params.get("order") or "desc").strip().lower()
     limit = _safe_int(request.query_params.get("limit"))
 
-    base = Profile.objects.select_related("company")
-    f = ProfileFilterSet(request.GET, queryset=base)
-    qs = f.qs
+    # ------- Profiles (insurance/plan) -------
+    base_profiles = Profile.objects.select_related("company")
+    pf = ProfileFilterSet(request.GET, queryset=base_profiles)
+    qsp = pf.qs
 
-    by_insurance_list, by_plan_list = [], []
+    by_insurance_list, by_plan_list, by_form_list = [], [], []
 
     if view in ("insurance", "all"):
-        qsi = qs.values("insuranceCoverage").annotate(total=Count("id"))
-        qsi = qsi.order_by("total" if order == "asc" else "-total")
-        if limit:
-            qsi = qsi[:limit]
-        by_insurance_list = list(qsi)
+        q = qsp.values("insuranceCoverage").annotate(total=Count("id")).order_by("total" if order == "asc" else "-total")
+        if limit: q = q[:limit]
+        by_insurance_list = list(q)
 
     if view in ("plantypes", "all"):
-        qsp = qs.values("coverageType").annotate(total=Count("id"))
-        qsp = qsp.order_by("total" if order == "asc" else "-total")
-        if limit:
-            qsp = qsp[:limit]
-        by_plan_list = list(qsp)
+        q = qsp.values("coverageType").annotate(total=Count("id")).order_by("total" if order == "asc" else "-total")
+        if limit: q = q[:limit]
+        by_plan_list = list(q)
 
-    if view == "formtypes":
-        by_insurance_list, by_plan_list = [], []
+    # ------- Form Submissions (formTypes) -------
+    if view in ("formtypes", "all"):
+        base_forms = FormSubmission.objects.select_related("company")
+        ff = FormSubmissionFilterSet(request.GET, queryset=base_forms)
+        qsf = ff.qs.exclude(formType__isnull=True).exclude(formType__exact="")
+        q = qsf.values("formType").annotate(total=Count("id")).order_by("total" if order == "asc" else "-total")
+        if limit: q = q[:limit]
+        by_form_list = list(q)
 
     return Response({
         "by_insurance": by_insurance_list if view in ("insurance", "all") else [],
-        "by_plan": by_plan_list if view in ("plantypes", "all") else [],
+        "by_plan":      by_plan_list      if view in ("plantypes", "all") else [],
+        "by_form":      by_form_list      if view in ("formtypes", "all") else [],
     })
 
 
@@ -133,7 +149,7 @@ def users_product_mix(request):
 @permission_classes([IsAuthenticated])
 def revenue_series(request):
     """
-    Agora aceita filtros via django-filter (UserFilterSet):
+    Filtros via django-filter (UserFilterSet):
       - company=<id>
       - q=<search>
       - date_joined_after=YYYY-MM-DD
@@ -203,7 +219,6 @@ def top_entities(request):
     f = UserFilterSet(request.GET, queryset=base)
     qs = f.qs
 
-    # precisa de _serialize_user_flat (não está em users/views, então mantenha no analytics se quiser)
     users = [
         {
             "id": u.id,

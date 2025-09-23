@@ -28,6 +28,9 @@ urlpatterns = [
     path("api/products/", include("src.products.api.urls", namespace="products_api")),
     path("api/", include("src.reports.api.urls")),  # <= precisa estar aqui
     path("api/", include("src.analytics.api.urls")),  # <= precisa estar aqui
+    path("api/", include("src.forms.api.urls")),
+
+
 
 ]
 

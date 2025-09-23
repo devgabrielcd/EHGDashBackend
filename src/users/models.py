@@ -1,9 +1,9 @@
 from django.contrib.auth.models import User
 from django.db import models
 from django.db.models.signals import post_save
+from src.forms.models import FORM_TYPE_CHOICES
 
 from src.company.models import Company
-# reaproveita as mesmas choices do products (iguais ao sheets)
 from src.products.models import PLAN_CHOICES, TYPE_CHOICES
 
 class UserType(models.Model):
@@ -57,6 +57,8 @@ class Profile(models.Model):
     company = models.ForeignKey(Company, on_delete=models.DO_NOTHING, null=True, blank=True) # 👈 ADICIONE ESTA LINHA
     coverageType = models.CharField(max_length=20, choices=PLAN_CHOICES, null=True, blank=True)
     insuranceCoverage = models.CharField(max_length=20, choices=TYPE_CHOICES, null=True, blank=True)
+    formType = models.CharField(max_length=20, choices=FORM_TYPE_CHOICES, null=True, blank=True)
+
     def __str__(self):
         return f'{self.user_type} - {self.first_name} {self.last_name}'
 
