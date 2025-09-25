@@ -23,6 +23,7 @@ INSTALLED_APPS = [
     "src.menu_itens",
     "src.notifications",
     'src.reports',
+    'src.activity',
     'src.forms',
     'django_seed',
     "corsheaders",
@@ -48,6 +49,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    'src.common.middleware.session_meta.SessionMetaMiddleware',
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -87,8 +89,8 @@ DATABASES = {
 # DRF
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework.authentication.SessionAuthentication",  # precisa
         "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "rest_framework.authentication.SessionAuthentication",
     ),
 
     "DEFAULT_FILTER_BACKENDS": [

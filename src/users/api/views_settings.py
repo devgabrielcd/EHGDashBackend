@@ -1,7 +1,5 @@
-# src/users/api/views.py
-
 from typing import Dict, Any
-from datetime import datetime, timezone, date  # p/ _coerce_to_date
+from datetime import datetime, timezone, date  # 👈 necessário p/ _coerce_to_date
 from django.forms.models import model_to_dict
 from django.shortcuts import get_object_or_404
 from django.contrib.auth import get_user_model, update_session_auth_hash
@@ -10,26 +8,16 @@ from django.db.models import Q, Count
 from django.contrib.sessions.models import Session
 from django.utils import timezone as dj_tz
 
-from rest_framework.decorators import (
-    api_view,
-    permission_classes,
-    authentication_classes,
-)
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from rest_framework.authentication import SessionAuthentication
-
-from django.db.models.functions import Coalesce
-
 from src.users.models import Profile, UserRole, UserType
 from src.company.models import Company
-from src.forms.models import FormSubmission
 
-# logger de atividades
-from src.activity.utils import log_activity
+from django.db.models.functions import Coalesce
+from src.forms.models import FormSubmission
 
 User = get_user_model()
 
@@ -183,45 +171,8 @@ def serialize_user_with_profile(user: User, request=None) -> Dict[str, Any]:
                 profile_data[k] = v.isoformat()
     return {"user": user_data, "profile": profile_data}
 
-
-def _sync_user_profile_names_email(user, profile, data):
-    """
-    Mantém User e Profile em sincronia para first_name, last_name e email.
-    Atualiza apenas os campos presentes no payload.
-    """
-    changed_user = False
-    changed_profile = False
-
-    if "first_name" in data and data["first_name"] is not None:
-        fn = data["first_name"]
-        if user.first_name != fn:
-            user.first_name = fn; changed_user = True
-        if getattr(profile, "first_name", None) != fn:
-            profile.first_name = fn; changed_profile = True
-
-    if "last_name" in data and data["last_name"] is not None:
-        ln = data["last_name"]
-        if user.last_name != ln:
-            user.last_name = ln; changed_user = True
-        if getattr(profile, "last_name", None) != ln:
-            profile.last_name = ln; changed_profile = True
-
-    if "email" in data and data["email"]:
-        em = data["email"].strip().lower()
-        if user.email != em:
-            user.email = em; changed_user = True
-        if getattr(profile, "email", None) != em:
-            profile.email = em; changed_profile = True
-
-    if changed_user:
-        user.save(update_fields=["first_name", "last_name", "email"])
-    if changed_profile:
-        update_fields = [f for f in ["first_name", "last_name", "email"] if hasattr(profile, f)]
-        if update_fields:
-            profile.save(update_fields=update_fields)
-
 # ---------------------------------------------------------------------
-# ENDPOINTS DE USUÁRIOS
+# ENDPOINTS DE USUÁRIOS (limpos: sem analytics)
 # ---------------------------------------------------------------------
 
 @api_view(["GET", "POST"])
@@ -273,7 +224,7 @@ def users_list_create_api(request):
 
     profile, _ = Profile.objects.get_or_create(user=user)
 
-    # campos simples do Profile
+    # campos simples
     for field in ["first_name", "middle_name", "last_name", "phone_number", "email"]:
         if field in data:
             setattr(profile, field, data.get(field))
@@ -298,24 +249,6 @@ def users_list_create_api(request):
         profile.company = get_object_or_404(Company, id=company_id)
 
     profile.save()
-
-    # garante 100% de alinhamento (nome/sobrenome/email)
-    _sync_user_profile_names_email(user, profile, {
-        "first_name": data.get("first_name"),
-        "last_name": data.get("last_name"),
-        "email": data.get("email"),
-    })
-
-    # LOG
-    log_activity(
-        actor=request.user,
-        action="user.create",
-        target_user=user,
-        company=profile.company if hasattr(profile, "company") else None,
-        message=f"User created: {user.username}",
-        meta={"user_id": user.id, "email": user.email}
-    )
-
     return Response(serialize_user_for_sheets(user, request=request), status=status.HTTP_201_CREATED)
 
 
@@ -348,26 +281,25 @@ def user_detail_api(request, pk):
         profile = user.profile
 
         if is_admin:
-            # username
+            # fluxo atual de admin (completo)
             if "username" in data and data["username"]:
                 new_username = data["username"].strip().lower()
                 if new_username != user.username and User.objects.filter(username=new_username).exists():
                     return Response({"detail": "Username already taken"}, status=status.HTTP_400_BAD_REQUEST)
                 user.username = new_username
 
-            # senha
+            if "email" in data and data["email"]:
+                user.email = data["email"].strip().lower()
+
             if "password" in data and data["password"]:
                 user.set_password(data["password"])
 
-            # ativo/inativo
             if "is_active" in data:
                 user.is_active = _parse_bool(data["is_active"], user.is_active)
 
-            # SINCRONIZAÇÃO (first_name, last_name, email)
-            _sync_user_profile_names_email(user, profile, data)
+            user.save()
 
-            # Demais campos do profile
-            for field in ["middle_name", "phone_number"]:
+            for field in ["first_name", "middle_name", "last_name", "phone_number", "email"]:
                 if field in data:
                     setattr(profile, field, data.get(field))
 
@@ -388,23 +320,19 @@ def user_detail_api(request, pk):
             if company_id:
                 profile.company = get_object_or_404(Company, id=company_id)
 
-            profile.save()  # salva alterações restantes
-
-            log_activity(
-                actor=request.user,
-                action="user.update",
-                target_user=user,
-                company=getattr(profile, "company", None),
-                message=f"User updated: {user.username}",
-                meta={"user_id": user.id}
-            )
+            profile.save()
 
         elif is_self:
-            # SINCRONIZAÇÃO segura (nome/sobrenome/email)
-            _sync_user_profile_names_email(user, profile, data)
+            # fluxo 'seguro' para o próprio usuário (sem username/is_active/password/role/type/company)
+            for field in ["first_name", "last_name", "email"]:
+                if field in data and data[field] is not None:
+                    if field == "email":
+                        user.email = data[field].strip().lower()
+                    else:
+                        setattr(user, field, data[field])
+            user.save()
 
-            # Campos opcionais do profile que o próprio usuário pode alterar
-            for field in ["middle_name", "phone_number"]:
+            for field in ["first_name", "middle_name", "last_name", "phone_number", "email"]:
                 if field in data and data[field] is not None:
                     setattr(profile, field, data[field])
 
@@ -414,15 +342,6 @@ def user_detail_api(request, pk):
                 profile.insuranceCoverage = data["insuranceCoverage"]
 
             profile.save()
-
-            log_activity(
-                actor=request.user,
-                action="user.update.self",
-                target_user=user,
-                company=getattr(profile, "company", None),
-                message="Self profile updated",
-                meta={"user_id": user.id}
-            )
         else:
             return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -433,26 +352,15 @@ def user_detail_api(request, pk):
     if not (is_admin or is_self):
         return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
-    company = getattr(getattr(user, "profile", None), "company", None)
-    action_name = "user.delete.self" if is_self else "user.delete"
-    log_activity(
-        actor=request.user,
-        action=action_name,
-        target_user=user,
-        company=company,
-        message=f"User deleted: {user.username}",
-        meta={"user_id": user.id}
-    )
-
     if is_self:
         try:
-            request.session.flush()
+            request.session.flush()  # derruba a sessão atual
         except Exception:
             pass
         user.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    user.delete()
+    user.delete()  # admin
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 # ---------------------------------------------------------------------
@@ -586,15 +494,6 @@ def change_password_api(request):
     user.set_password(new_password)
     user.save()
     update_session_auth_hash(request, user)  # mantém logado
-
-    log_activity(
-        actor=request.user,
-        action="password.change",
-        target_user=request.user,
-        company=getattr(getattr(request.user, "profile", None), "company", None),
-        message="Password changed",
-    )
-
     return Response({"detail": "Password changed successfully"})
 
 
@@ -608,7 +507,7 @@ def user_preferences_api(request, pk):
     if not (is_self or is_admin):
         return Response({"detail": "Forbidden"}, status=403)
 
-    profile = user.profile
+    profile = getattr(user, "profile", None)
 
     def get_prefs():
         theme = getattr(profile, "theme", None)
@@ -663,16 +562,6 @@ def user_preferences_api(request, pk):
                 profile.integrations = blob
 
     profile.save()
-
-    log_activity(
-        actor=request.user,
-        action="prefs.update",
-        target_user=user,
-        company=getattr(profile, "company", None),
-        message="Preferences updated",
-        meta={"theme": get_prefs().get("theme")}
-    )
-
     return Response(get_prefs())
 
 
@@ -689,9 +578,9 @@ def user_sessions_api(request, pk):
         if str(data.get("_auth_user_id")) == str(pk):
             sessions.append({
                 "id": s.session_key,
-                "device": data.get("ua", "Unknown device"),
+                "device": data.get("ua", "Unknown device"),  # opcional (se você salvar UA)
                 "ip": data.get("ip"),
-                "created_at": None,
+                "created_at": None,  # preencha se você salvar isso no login
                 "last_active_at": s.expire_date.isoformat(),
                 "current": s.session_key == request.session.session_key,
             })
@@ -712,29 +601,53 @@ def user_session_delete_api(request, pk, key: str):
     if str(data.get("_auth_user_id")) != str(pk):
         return Response({"detail": "Forbidden"}, status=403)
     s.delete()
-
-    log_activity(
-        actor=request.user,
-        action="session.revoke",
-        target_user=request.user if request.user.id == pk else None,
-        company=getattr(getattr(request.user, "profile", None), "company", None),
-        message="Session revoked",
-        meta={"session_key": key}
-    )
-
     return Response({"ok": True})
 
-# ---------------------------------------------------------------------
-# AUTH helpers: session e logout
-# ---------------------------------------------------------------------
+
+@api_view(["GET", "PATCH"])
+@permission_classes([IsAuthenticated])
+@transaction.atomic
+def user_integrations_api(request, pk):
+    user = get_object_or_404(User.objects.select_related("profile"), pk=pk)
+    if not (request.user.id == user.id or _is_admin(request)):
+        return Response({"detail": "Forbidden"}, status=403)
+
+    profile = user.profile
+
+    def read_blob():
+        if hasattr(profile, "integrations") and isinstance(profile.integrations, dict):
+            return profile.integrations
+        if hasattr(profile, "meta") and isinstance(profile.meta, dict):
+            return profile.meta.get("integrations", {})
+        return {}
+
+    if request.method == "GET":
+        return Response(read_blob())
+
+    payload = request.data or {}
+    blob = read_blob()
+    blob.update({k: bool(v) for (k, v) in payload.items()})
+
+    if hasattr(profile, "integrations"):
+        profile.integrations = blob
+    elif hasattr(profile, "meta"):
+        m = profile.meta or {}
+        m["integrations"] = blob
+        profile.meta = m
+    else:
+        # sem campo para persistir: responde OK (stateless) até você criar JSONField
+        return Response(blob)
+
+    profile.save()
+    return Response(blob)
+
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
-@authentication_classes([JWTAuthentication, SessionAuthentication])  # JWT primeiro
 def auth_session_api(request):
     """
-    Retorna o usuário autenticado. Se vier Authorization: Bearer <token>,
-    o JWT prevalece sobre qualquer cookie de sessão legado.
+    Retorna o usuário autenticado com base na sessão/JWT atual.
+    Útil para o frontend descobrir o userId sem localStorage.
     """
     user = request.user
     prof = getattr(user, "profile", None)
@@ -747,32 +660,3 @@ def auth_session_api(request):
         },
         "profile_id": getattr(prof, "id", None),
     })
-
-
-@api_view(["POST"])
-@authentication_classes([JWTAuthentication, SessionAuthentication])
-@permission_classes([IsAuthenticated])
-def auth_logout_api(request):
-    """
-    Encerra a sessão do Django (se houver) e retorna OK.
-    """
-    try:
-        if hasattr(request, "session"):
-            request.session.flush()
-    except Exception:
-        pass
-
-    log_activity(
-        actor=request.user,
-        action="auth.logout",
-        target_user=request.user,
-        company=getattr(getattr(request.user, "profile", None), "company", None),
-        message="User logged out",
-    )
-
-    resp = Response({"ok": True})
-    resp.delete_cookie("sessionid", path="/")
-    resp.delete_cookie("csrftoken", path="/")
-    resp.delete_cookie("refresh", path="/")
-    resp.delete_cookie("dj_refresh", path="/")
-    return resp

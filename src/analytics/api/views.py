@@ -1,4 +1,3 @@
-# src/analytics/api/views.py
 from typing import Dict, Any, List, Tuple, Optional
 from datetime import datetime, timezone, date as _date
 from calendar import month_abbr
@@ -11,18 +10,21 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from src.users.models import Profile
-from src.forms.models import FormSubmission  # ⬅️ novo
+from src.forms.models import FormSubmission
 from .filters import ProfileFilterSet, UserFilterSet, FormSubmissionFilterSet
 
-# importa helpers do app users
+# helpers importados do app users
 from src.users.api.views import (
     _is_admin,
     _safe_int,
     _coerce_to_date,
-    _parse_bool,  # não usado aqui, mas ok manter
-    serialize_user_for_sheets,       # não usamos neste arquivo, mas ok
-    serialize_user_with_profile,     # idem
+    _parse_bool,               # não usado aqui, mas ok
+    serialize_user_for_sheets, # não usamos aqui, mas ok manter
+    serialize_user_with_profile,
 )
+
+# 🔹 Activity feed
+from src.activity.models import ActivityLog
 
 User = get_user_model()
 
@@ -87,23 +89,6 @@ def _parse_period(query_params) -> Tuple[str, Optional[int]]:
 def users_product_mix(request):
     """
     Agregações para o "System Health".
-
-    Filtros aceitos:
-      - company=<id>
-      - insuranceCoverage=<str> | insuranceCoverage__in=A,B,C
-      - coverageType=<str>
-      - include_unknown=1|0     (aplica nos campos do Profile)
-      - formType=<str> | formType__in=A,B,C  (aplica em FormSubmission)
-      - order=asc|desc          (padrão: desc)
-      - limit=<int>
-      - view=insurance|planTypes|formTypes|all
-
-    Resposta:
-      {
-        "by_insurance": [{"insuranceCoverage": "...", "total": N}, ...],
-        "by_plan": [{"coverageType": "...", "total": N}, ...],
-        "by_form": [{"formType": "...", "total": N}, ...]
-      }
     """
     if not _is_admin(request):
         return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
@@ -149,12 +134,7 @@ def users_product_mix(request):
 @permission_classes([IsAuthenticated])
 def revenue_series(request):
     """
-    Filtros via django-filter (UserFilterSet):
-      - company=<id>
-      - q=<search>
-      - date_joined_after=YYYY-MM-DD
-      - date_joined_before=YYYY-MM-DD
-    Além de 'period=3|6|12|24|ytd'
+    Filtros via django-filter (UserFilterSet) + period.
     """
     if not _is_admin(request):
         return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
@@ -194,11 +174,7 @@ def revenue_series(request):
 @permission_classes([IsAuthenticated])
 def top_entities(request):
     """
-    Lista flat com suporte a filtros do UserFilterSet:
-      - company=<id>
-      - q=<search>
-      - date_joined_after/before=YYYY-MM-DD
-      - limit=1..200
+    Flat de usuários por date_joined (legado).
     """
     if not _is_admin(request):
         return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
@@ -234,3 +210,60 @@ def top_entities(request):
         for u in qs[:limit]
     ]
     return Response(users)
+
+
+# 🔥 NOVO: feed unificado de atividades
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def activity_feed(request):
+    """
+    Feed de atividades (criação, edição, deleção, senha, prefs, integrações, sessões, login/logout, forms).
+    Filtros:
+      - company=<id>
+      - action=<str> (ex.: user.create)
+      - limit=1..200 (default 20)
+    """
+    if not _is_admin(request):
+        return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+    limit = _safe_int(request.query_params.get("limit"), 20)
+    limit = max(1, min(limit or 20, 200))
+
+    qs = ActivityLog.objects.select_related("actor", "target_user", "company")
+    company_id = _safe_int(request.query_params.get("company"))
+    if company_id:
+        qs = qs.filter(company__id=company_id)
+
+    action = (request.query_params.get("action") or "").strip()
+    if action:
+        qs = qs.filter(action=action)
+
+    qs = qs.order_by("-created_at")[:limit]
+
+    out = []
+    for a in qs:
+        actor_first = getattr(getattr(a.actor, "profile", None), "first_name", None) or getattr(a.actor, "first_name", "") or ""
+        actor_last  = getattr(getattr(a.actor, "profile", None), "last_name", None) or getattr(a.actor, "last_name", "") or ""
+        target_first = getattr(getattr(a.target_user, "profile", None), "first_name", None) or getattr(a.target_user, "first_name", "") or ""
+        target_last  = getattr(getattr(a.target_user, "profile", None), "last_name", None) or getattr(a.target_user, "last_name", "") or ""
+
+        out.append({
+            "datetime": a.created_at.isoformat(),
+            "action": a.action,
+            "message": a.message or "",
+            "actor": {
+                "id": getattr(a.actor, "id", None),
+                "username": getattr(a.actor, "username", None),
+                "firstName": actor_first,
+                "lastName": actor_last,
+            },
+            "target": {
+                "id": getattr(a.target_user, "id", None),
+                "username": getattr(a.target_user, "username", None),
+                "firstName": target_first,
+                "lastName": target_last,
+            },
+            "company_name": getattr(getattr(a, "company", None), "name", None),
+            "meta": a.meta or {},
+        })
+    return Response(out)
