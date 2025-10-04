@@ -25,6 +25,7 @@ INSTALLED_APPS = [
     'src.reports',
     'src.activity',
     'src.forms',
+    'src.leads',
     'django_seed',
     "corsheaders",
     "django_filters",

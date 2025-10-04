@@ -1,8 +1,8 @@
-# forms/api/urls.py
+# src/forms/urls.py
 from django.urls import path
-from .views import form_list_create_api, form_detail_api
+from .views import FormSubmissionAPIView, FormSubmissionDetailAPIView
 
 urlpatterns = [
-    path("forms/", form_list_create_api, name="forms-list-create"),
-    path("forms/<int:pk>/", form_detail_api, name="forms-detail"),
+    path("forms/", FormSubmissionAPIView.as_view(), name="forms"),
+    path("forms/<int:pk>/", FormSubmissionDetailAPIView.as_view(), name="forms-detail"),
 ]

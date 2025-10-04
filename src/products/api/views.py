@@ -11,7 +11,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 
-from src.products.models import Product, PLAN_CHOICES, TYPE_CHOICES
+from src.products.models import ProductDetail, PLAN_CHOICES, TYPE_CHOICES
 from src.company.models import Company
 from src.users.models import Profile
 
@@ -41,7 +41,7 @@ def _safe_int(val, default=None):
         return default
 
 
-def serialize_product(p: Product) -> Dict[str, Any]:
+def serialize_product(p: ProductDetail) -> Dict[str, Any]:
     """
     Serializer minimalista com model_to_dict + campos derivados
     """
